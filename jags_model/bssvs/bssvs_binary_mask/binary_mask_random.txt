@@ -1,0 +1,34 @@
+# Bayesian Stochastic Search Variable Selection
+# Binary mask regression with continuous response variable
+
+# random effects - precision on coefficients is drawn from a gamma distribution
+# probability of variable inclusion (pind) is drawn from uniform distribution
+
+model{
+	for (i in 1:n){
+		Y[i] ~ dnorm(mean[i], tau)
+		mean[i] <- alpha + X[i,] %*% beta[]
+	}
+	
+	# priors on coefficients
+	for (j in 1:ncov){
+		
+		# coefficient is masked or not according to latent variable, ind[j]
+		beta[j] <- ind[j]*underlying[j]
+		
+		underlying[j] ~ dnorm(0, taub)
+		ind[j] ~ dbern(pind)
+	}
+	
+	# alpha is the intercept and tau is the precision on observations
+	# taub is the precision on the distribution from which random effects are drawn
+	alpha ~ dnorm(0, 0.0001)
+	tau ~ dgamma(1, 0.001)
+	taub ~ dgamma(1, 0.001)
+	
+	# prior distribution on variable selection
+	pind ~ dunif(0, 1)
+	
+	#data# Y, X, n, ncov
+	#monitor# alpha, beta, ind, pind
+}
