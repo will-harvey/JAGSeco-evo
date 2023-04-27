@@ -1,0 +1,33 @@
+# spike and slab priors
+# code from: http://mbjoseph.github.io/2014/03/22/ssvs.html
+
+model{
+	for (i in 1:n){
+		Y[i] ~ dnorm(mean[i],tau_y)
+		mean[i] <- alpha + X[i,] %*% beta[]
+	}
+	
+	# coefficient priors
+	for (j in 1:ncov){
+		indA[j] ~ dcat(pind[])		# returns 1 or 2
+		ind[j] <- indA[j] - 1		# returns 0 or 1
+		
+		# precision on coefficient prior dictates if coefficient can get away from zero
+		beta[j] ~ dnorm(0, tau[indA[j]])
+	}
+	
+	# SSVS parameters
+	sd_bet ~ dunif(0, 100)
+	taub <- pow(sd_bet, -2)
+	tau[1] <- taub					#coef effectively zero
+	tau[2] <- taub / 10000			# nonzero coef
+	pind[1] <- 0.8
+	pind[2] <- 1 - pind[1]
+	
+	# typical regression parameters
+	alpha ~ dnorm(0, 0.0001)
+	tau_y ~ dgamma(1, 0.001)
+	
+	#data# Y, X, n, ncov
+	#monitor# alpha, beta, ind
+}
