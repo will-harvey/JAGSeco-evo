@@ -1,0 +1,21 @@
+# saturated model
+# no model selection
+
+model{
+	for (i in 1:n){
+		Y[i] ~ dnorm(mean[i], tau)
+		mean[i] <- alpha + X[i,] %*% beta[]
+	}
+	
+	# coefficient priors
+	for (j in 1:ncov){
+		beta[j] ~ dnorm(0, 0.001)
+	}
+	
+	# typical regression parameters
+	alpha ~ dnorm(0, 0.0001)
+	tau ~ dgamma(1, 0.001)
+	
+	#data# Y, X, n, ncov
+	#monitor# alpha, beta, alpha, tau
+}
