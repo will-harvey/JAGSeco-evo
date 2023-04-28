@@ -1,0 +1,274 @@
+---
+title: "Run ZOIB lizard habitat example"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.height = 5)
+knitr::opts_chunk$set(fig.width = 12)
+```
+
+## Habitat preference model
+
+This script shows how to apply a zero-one-inflated beta (ZOIB) regression model to investigate if the proportion of a habitat type differs between observations. ZOIB regression is useful for modelling variation in a response variable expressed as proportions but which also features values of zero and one.
+
+ZOIB regression involves modelling a mixture of three things:
+1. A logistic regression model that predicts if an outcome is either discrete (0 or 1) or not (a proportion between 0 and 1)
+2. A logistic regression model that predicts if discrete values are 0 or 1.
+3. A beta regression model that predicts the value of an outcome that falls between 0 and 1. The parameters of a beta distribution are modelled.
+
+The models here are implemented in JAGS (https://mcmc-jags.sourceforge.io) with the R package `runjags` (https://cran.r-project.org/web/packages/runjags/index.html) used to interface between R and JAGS.
+
+
+```{r}
+library(runjags)
+```
+
+### Example lizard dataset
+
+An example dataset consists of proportions in the immediate vicinity of an observed lizard. Each row represents .
+
+Various models below can be used to explore lizard microhabitat preference. For example, are lizards found in a habitat type proportionally representative of what is available in their environment or do they show a preference. Does the proportion of a habitat type in which a lizard is typically found differ according to sex or parity mode (whether the hypothetical lizards are viviparous or oviparous).
+
+The example dataset has the variables: `habitat` expressed as a value between 0 and 1, inclusive; `lizard` which is a binary variable expressing the presence or absence of a lizard; `sex` which is either 'male' or 'female' for lizard observations or 'absent' for random observations; and `parity` which is either 'viviparous' or 'oviparous' for lizard observations or 'absent' for random observations.
+
+```{r}
+dat <- read.csv('example_dataset/example_data.csv', stringsAsFactors = T)
+head(dat)
+
+table(dat$sex, useNA = 'always')
+table(dat$parity, useNA = 'always')
+
+tapply(dat$habitat, dat$sex, summary)
+tapply(dat$habitat, dat$parity, summary)
+```
+### Zero-inflated beta regression model
+
+In the absence of any ones in the response variable but when zeroes do exist, there is an option to implement a zero-inflated beta (ZIB) regression model. The ZIB model has two components
+1. A logistic regression model that predicts if an outcome is either zero or not (a proportion between 0 and 1)
+2. A beta regression model that predicts the value of an outcome that falls between 0 and 1. The parameters of a beta distribution are modelled.
+
+```{r}
+dat$sex_parity <- paste0(dat$sex, dat$parity)
+tapply(dat$habitat, dat$sex_parity, summary)
+
+dat$y <- dat$habitat
+
+# model choice depends on whether both 0 and 1 are present or not
+if (1 %in% dat$y & 0 %in% dat$y) {
+  model.1tau <- "../jags_model/zoib/zoib.txt"
+  model.2tau <- "../jags_model/zoib/zoib_2tau.txt"
+} else {
+  model.1tau <- "../jags_model/zoib/zib.txt"
+  model.2tau <- "../jags_model/zoib/zib_2tau.txt"
+}
+```
+
+
+### Null model
+
+To run a null model against which all others can be compared, there is no explanatory variable so provide a vector of ones as an 'x' variable. All observations will then be considered part of the same group to which a single set of model parameters will be fitted.
+
+```{r}
+y <- dat$y
+n <- length(y)
+x <- rep(1, n) ### All 1S HERE INSTEAD OF EXPLANATORY VARIABLE
+n.grp <- length(unique(x))
+
+# split the data into discrete and continuous components
+y.d <- ifelse(y == 1 | y == 0, y, NA)
+y.discrete <- ifelse(is.na(y.d), 0, 1)
+y.d <- y.d[!is.na(y.d)]
+n.discrete <- length(y.d)
+x.d <- x[y.discrete == 1]
+
+which.cont <- which(y < 1 & y > 0)
+y.c <- ifelse(y < 1 & y > 0, y, NA)
+y.c <- y.c[!is.na(y.c)]
+n.cont <- length(y.c)
+x.c <- x[which.cont]
+
+# now run model
+mod <- run.jags(model.1tau, n.chains = 3, sample = 200,
+                adapt = 1000, burnin = 1000, thin = 20)
+
+dic.null <- runjags::extract(mod, 'dic')
+```
+
+### Model to test habitat in presence/absence of lizard
+
+Lizard model. Has two groups. Possible for lizard and random to share a precision (tau) or to have two precisions for lizard and random.
+
+```{r}
+y <- dat$y
+n <- length(y)
+x <- as.integer(as.factor(dat$lizard)) ### CHOOSE EXPLANATORY VAR. HERE
+n.grp <- length(unique(x))
+
+# split the data into discrete and continuous components
+y.d <- ifelse(y == 1 | y == 0, y, NA)
+y.discrete <- ifelse(is.na(y.d), 0, 1)
+y.d <- y.d[!is.na(y.d)]
+n.discrete <- length(y.d)
+x.d <- x[y.discrete == 1]
+
+which.cont <- which(y < 1 & y > 0)
+y.c <- ifelse(y < 1 & y > 0, y, NA)
+y.c <- y.c[!is.na(y.c)]
+n.cont <- length(y.c)
+x.c <- x[which.cont]
+
+mod <- run.jags(model.1tau, n.chains = 3, sample = 200,
+                adapt = 1000, burnin = 1000, thin = 20)
+dic.lizard <- runjags::extract(mod, 'dic')
+
+mod <- run.jags(model.2tau, n.chains = 3, sample = 200,
+                adapt = 1000, burnin = 1000, thin = 20)
+dic.lizard.2tau <- runjags::extract(mod, 'dic')
+```
+
+### Sex model
+
+In addition to lizard observations being able to differ in habitat proportions relative to random observations, model allows for investigation of a difference in preference between males and females. Model three groups for which parameters can vary... random, female lizard and male lizard. The two precision model is again used which means the precision on the beta component of the regression is shared by all lizards. In theory, a model with a precision parameter for each group could be tested.
+
+```{r}
+y <- dat$y
+n <- length(y)
+x <- as.integer(as.factor(dat$sex)) ### CHOOSE EXPLANATORY VAR. HERE
+n.grp <- length(unique(x))
+
+# split the data into discrete and continuous components
+y.d <- ifelse(y == 1 | y == 0, y, NA)
+y.discrete <- ifelse(is.na(y.d), 0, 1)
+y.d <- y.d[!is.na(y.d)]
+n.discrete <- length(y.d)
+x.d <- x[y.discrete == 1]
+
+which.cont <- which(y < 1 & y > 0)
+y.c <- ifelse(y < 1 & y > 0, y, NA)
+y.c <- y.c[!is.na(y.c)]
+n.cont <- length(y.c)
+x.c <- x[which.cont]
+
+mod <- run.jags(model.1tau, n.chains = 3, sample = 200,
+                adapt = 1000, burnin = 1000, thin = 20)
+dic.sex <- runjags::extract(mod, 'dic')
+
+mod <- run.jags(model.2tau, n.chains = 3, sample = 200,
+                adapt = 1000, burnin = 1000, thin = 20)
+dic.sex.2tau <- runjags::extract(mod, 'dic')
+
+```
+
+### Parity mode model
+
+Another option is to model possible differences between lizards that depend on their parity mode. The sex of individuals is not taken into account. Again, there are two options for lizards, oviparous and viviparous, in addition to random observations so the model has the same complexity as the sex model run above.
+
+```{r}
+y <- dat$y
+n <- length(y)
+x <- as.integer(as.factor(dat$parity)) ### CHOOSE EXPLANATORY VAR. HERE
+n.grp <- length(unique(x))
+
+# split the data into discrete and continuous components
+y.d <- ifelse(y == 1 | y == 0, y, NA)
+y.discrete <- ifelse(is.na(y.d), 0, 1)
+y.d <- y.d[!is.na(y.d)]
+n.discrete <- length(y.d)
+x.d <- x[y.discrete == 1]
+
+which.cont <- which(y < 1 & y > 0)
+y.c <- ifelse(y < 1 & y > 0, y, NA)
+y.c <- y.c[!is.na(y.c)]
+n.cont <- length(y.c)
+x.c <- x[which.cont]
+
+mod <- run.jags(model.1tau, n.chains = 3, sample = 200,
+                adapt = 1000, burnin = 1000, thin = 20)
+dic.parity <- runjags::extract(mod, 'dic')
+
+mod <- run.jags(model.2tau, n.chains = 3, sample = 200,
+                adapt = 1000, burnin = 1000, thin = 20)
+dic.parity.2tau <- runjags::extract(mod, 'dic')
+
+```
+
+### Model accounting for both sex and parity mode
+
+Model will allow for potential differences in habitat preference between lizards of different combinations of parity mode and sex.
+
+```{r}
+y <- dat$y
+n <- length(y)
+x <- as.integer(as.factor(dat$sex_parity)) ### CHOOSE EXPLANATORY VAR. HERE
+n.grp <- length(unique(x))
+
+# split the data into discrete and continuous components
+y.d <- ifelse(y == 1 | y == 0, y, NA)
+y.discrete <- ifelse(is.na(y.d), 0, 1)
+y.d <- y.d[!is.na(y.d)]
+n.discrete <- length(y.d)
+x.d <- x[y.discrete == 1]
+
+which.cont <- which(y < 1 & y > 0)
+y.c <- ifelse(y < 1 & y > 0, y, NA)
+y.c <- y.c[!is.na(y.c)]
+n.cont <- length(y.c)
+x.c <- x[which.cont]
+
+mod <- run.jags(model.1tau, n.chains = 3, sample = 200,
+                adapt = 1000, burnin = 1000, thin = 20)
+dic.sex.parity <- runjags::extract(mod, 'dic')
+
+mod <- run.jags(model.2tau, n.chains = 3, sample = 200,
+                adapt = 1000, burnin = 1000, thin = 20)
+dic.sex.parity.2tau <- runjags::extract(mod, 'dic')
+```
+
+```{r}
+dic.null
+dic.lizard
+dic.lizard.2tau
+dic.sex
+dic.sex.2tau
+dic.parity
+dic.parity.2tau
+dic.sex.parity
+dic.sex.parity.2tau
+dic.sex.parity.2tau
+```
+
+
+### Examine model parameters
+
+To examine model parameters, `<model>$hpd` can be used. For example, look at the parity model again. The parameters are as follows: alpha is the probability on the logistic regression that predicts if the outcome is discrete or not; gamma is the probability on the logistic regression that predicts whether a discrete outcome is either zero or one; mu is the mean for the beta regression component of the model; and tau is the precision parameter for the beta regression. Each parameter is indexed [1] (random-non lizard observation), [2] (female lizard), or [3] (male lizard). The model implemented is a "2-tau" model so all lizard catergories share a precision on the beta distribution component that can differ from random observations. Thus m.tau[2] and m.tau[3] are equal to each other but can differ from m.tau[1].
+
+```{r}
+y <- dat$y
+n <- length(y)
+x <- as.integer(as.factor(dat$sex)) ### CHOOSE EXPLANATORY VAR. HERE
+n.grp <- length(unique(x))
+
+# split the data into discrete and continuous components
+y.d <- ifelse(y == 1 | y == 0, y, NA)
+y.discrete <- ifelse(is.na(y.d), 0, 1)
+y.d <- y.d[!is.na(y.d)]
+n.discrete <- length(y.d)
+x.d <- x[y.discrete == 1]
+
+which.cont <- which(y < 1 & y > 0)
+y.c <- ifelse(y < 1 & y > 0, y, NA)
+y.c <- y.c[!is.na(y.c)]
+n.cont <- length(y.c)
+x.c <- x[which.cont]
+
+mod <- run.jags(model.2tau, n.chains = 3, sample = 200,
+                adapt = 1000, burnin = 1000, thin = 20)
+
+## round parameters 
+round(mod$hpd, 2)
+```
+
+
+
