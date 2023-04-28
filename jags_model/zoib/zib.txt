@@ -1,0 +1,42 @@
+## Variation of model 3 with differences
+## alpha and mu vary with group
+## tau is shared by all groups
+
+model{
+
+	# likelihood for alpha
+	for (i in 1:n){
+		y.discrete[i] ~ dbern(alpha[i])
+		logit(alpha[i]) <- a1[x[i]]	
+	}
+
+	# likelihood for mu and tau
+	for (i in 1:n.cont){
+		y.c[i] ~ dbeta(p[i], q[i])
+		p[i] <- mu2[i] * tau
+		q[i] <- (1 - mu2[i]) * tau
+		logit(mu2[i]) <- c1[x.c[i]]
+	}
+  
+	# priors
+	for (g in 1:n.grp){
+		a1[g] ~ dnorm(0, .001)
+	}
+
+	for (g in 1:n.grp){
+		c1[g] ~ dnorm(0, .001)
+	}
+  
+	t0 ~ dnorm(0, .01)
+	tau <- exp(t0)
+	
+	# Define monitors
+	for (g in 1:n.grp) {
+		m.alpha[g] <- ilogit(a1[g])
+		m.mu[g] <- ilogit(c1[g])
+	}
+	m.tau <- tau
+  
+	#data# x, y.c, y.discrete, x.c, n.cont, n, n.grp
+	#monitor# m.alpha, m.mu, m.tau, pD
+}
