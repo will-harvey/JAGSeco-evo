@@ -2,6 +2,16 @@
 Bayesian models specified in JAGS that may be useful in ecology and evolutionary analysis
 
 
+## Variable selection using BSSVS
+
+Bayesian Stochastic Search Variable Selection (BBSVS) is a variable selection technique, which usually involves the use of inclusion variables.
+Binary inclusion variables dictate whether a variable is included in the model or not while the distribution for a parameter estimate associated with the variable is also estimated.
+This means that variable selection and model-fitting are carried out simultaneously.
+These approaches are particularly useful when the number of possible predictors is high, including when this number is higher than the number of observations.
+The folder 'jags_model/bssvs' contains subdirectories with models to perform the following varieties of BSSVS
+- Binary-mask variable selection
+- Spike-and-slab regression
+
 ## Zero-one-inflated beta regression
 
 Standard beta regression is used to model variation in a response variable expressed as proportions between 0 and 1.
